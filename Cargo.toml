@@ -11,8 +11,8 @@ readme = "README.md"
 futures-io = "0.3.4"
 pin-utils = "0.1.0"
 
-tokio = { version = "0.2", features = ["stream", "io-util"], optional = true }
-bytes = { version = "0.5.4", optional = true }
+tokio = { version = "1.6.1", features = ["io-util"], optional = true }
+bytes = { version = "1.0.1", optional = true }
 
 [features]
 default = ["with-tokio"]
@@ -21,4 +21,4 @@ with-tokio = ["tokio", "bytes"]
 [dev-dependencies]
 futures-core = "0.3.4"
 futures = "0.3.4"
-tokio = { version = "0.2", features = ["stream", "io-util", "sync", "rt-threaded", "time", "macros"] }
+tokio = { version = "1.6.1", features = ["io-util", "sync", "rt-multi-thread", "time", "macros"] }
