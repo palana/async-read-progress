@@ -37,6 +37,8 @@ pub use for_futures::FReportReadProgress as AsyncReadProgressExt;
 
 #[cfg(feature = "with-tokio")]
 pub use for_tokio::TReportReadProgress as TokioAsyncReadProgressExt;
+#[cfg(feature = "with-tokio")]
+pub use for_tokio::TReportWriteProgress as TokioAsyncWriteProgressExt;
 
 /// Reader for the `report_progress` method.
 #[must_use = "streams do nothing unless polled"]
@@ -180,7 +182,7 @@ mod for_tokio {
         io,
         time::{Duration, Instant},
     };
-    use tokio::io::{AsyncRead as TAsyncRead, ReadBuf};
+    use tokio::io::{AsyncRead as TAsyncRead, AsyncWrite as TAsyncWrite, ReadBuf};
 
     /// An extension trait which adds the `report_progress` method to
     /// `AsyncRead` types.
@@ -232,6 +234,64 @@ mod for_tokio {
         }
     }
 
+    /// An extension trait which adds the `report_progress` method to
+    /// `AsyncWrite` types.
+    ///
+    /// Note: This is for [`tokio::io::AsyncWrite`].
+    pub trait TReportWriteProgress {
+        fn report_progress<F>(
+            self,
+            at_most_ever: Duration,
+            callback: F,
+        ) -> super::LogStreamProgress<Self, F>
+        where
+            Self: Sized,
+            F: FnMut(usize),
+        {
+            let state = super::State {
+                bytes_processed: 0,
+                at_most_ever,
+                last_call_at: Instant::now(),
+            };
+            super::LogStreamProgress {
+                inner: self,
+                callback,
+                state,
+            }
+        }
+    }
+
+    impl<R: TAsyncWrite + ?Sized> TReportWriteProgress for R {}
+
+    impl<'a, St, F> TAsyncWrite for super::LogStreamProgress<St, F>
+    where
+        St: TAsyncWrite,
+        F: FnMut(usize),
+    {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<Result<usize, io::Error>> {
+            match self.as_mut().inner().poll_write(cx, buf) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Ready(Ok(bytes_written)) => {
+                    self.update(bytes_written);
+                    Poll::Ready(Ok(bytes_written))
+                }
+            }
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            self.as_mut().inner().poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            self.as_mut().inner().poll_shutdown(cx)
+        }
+    }
+
     #[test]
     fn works_with_tokios_async_read() {
         use tokio::io::AsyncReadExt;
@@ -247,6 +307,23 @@ mod for_tokio {
 
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             assert!(reader.read_to_end(&mut buf).await.is_ok());
+        });
+    }
+
+    #[test]
+    fn works_with_tokios_async_write() {
+        use tokio::io::{AsyncWriteExt, sink};
+
+        let src = &[1u8, 2, 3, 4, 5];
+        let total_size = src.len();
+
+        let mut writer = sink().report_progress(
+            /* only call every */ Duration::from_millis(20),
+            |bytes_written| eprintln!("written {}/{}", bytes_written, total_size),
+        );
+
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert!(writer.write(src).await.is_ok());
         });
     }
 
