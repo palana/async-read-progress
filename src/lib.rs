@@ -47,7 +47,7 @@ pub struct LogStreamProgress<St, F> {
 }
 
 struct State {
-    bytes_read: usize,
+    bytes_processed: usize,
     // TODO: Actually use this
     at_most_ever: Duration,
     last_call_at: Instant,
@@ -60,13 +60,13 @@ impl<St, F: FnMut(usize)> LogStreamProgress<St, F> {
     pin_utils::unsafe_unpinned!(callback: F);
     pin_utils::unsafe_unpinned!(state: State);
 
-    fn update(mut self: Pin<&mut Self>, bytes_read: usize) {
+    fn update(mut self: Pin<&mut Self>, bytes_processed: usize) {
         let mut state = self.as_mut().state();
-        state.bytes_read += bytes_read;
-        let read = state.bytes_read;
+        state.bytes_processed += bytes_processed;
+        let processed = state.bytes_processed;
 
         if state.last_call_at.elapsed() >= state.at_most_ever {
-            (self.as_mut().callback())(read);
+            (self.as_mut().callback())(processed);
 
             self.as_mut().state().last_call_at = Instant::now();
         }
@@ -119,7 +119,7 @@ mod for_futures {
             F: FnMut(usize),
         {
             let state = super::State {
-                bytes_read: 0,
+                bytes_processed: 0,
                 at_most_ever,
                 last_call_at: Instant::now(),
             };
@@ -197,7 +197,7 @@ mod for_tokio {
             F: FnMut(usize),
         {
             let state = super::State {
-                bytes_read: 0,
+                bytes_processed: 0,
                 at_most_ever,
                 last_call_at: Instant::now(),
             };
